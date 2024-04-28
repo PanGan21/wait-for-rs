@@ -1,8 +1,24 @@
 use futures::future;
+use futures::Future;
 use reqwest::Client;
 use std::error::Error;
 use std::time::Duration;
 use tokio::time::sleep;
+
+async fn wait_for_url<'a>(client: &'a Client, url: &'a str) -> impl Future<Output = bool> + 'a {
+    return async move {
+        match client.get(url).send().await {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    println!("{} is available!", url);
+                    return true;
+                }
+            }
+            Err(_) => {}
+        }
+        false
+    };
+}
 
 pub async fn wait_for_urls(
     urls: Vec<String>,
@@ -18,20 +34,8 @@ pub async fn wait_for_urls(
         let mut futures = Vec::new();
 
         for url in &urls {
-            let client = client.clone();
-            let future = async move {
-                match client.get(url).send().await {
-                    Ok(resp) => {
-                        if resp.status().is_success() {
-                            println!("{} is available!", url);
-                            return true;
-                        }
-                    }
-                    Err(_) => {}
-                }
-                false
-            };
-            futures.push(future);
+            let fut = wait_for_url(&client, url).await;
+            futures.push(fut);
         }
 
         let results = future::join_all(futures).await;
