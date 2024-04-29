@@ -1,56 +1,71 @@
-use futures::future;
-use futures::Future;
-use reqwest::Client;
-use std::error::Error;
-use std::time::Duration;
-use tokio::time::sleep;
+use log::{debug, error, info};
+use std::{
+    io,
+    net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs},
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
-async fn wait_for_url<'a>(client: &'a Client, url: &'a str) -> impl Future<Output = bool> + 'a {
-    return async move {
-        match client.get(url).send().await {
-            Ok(resp) => {
-                if resp.status().is_success() {
-                    println!("{} is available!", url);
-                    return true;
-                }
-            }
-            Err(_) => {}
+fn resolve_address(url: &str) -> Result<SocketAddr, std::io::Error> {
+    match url.to_socket_addrs() {
+        Ok(mut addr) => {
+            return Ok(addr.next().unwrap());
         }
-        false
-    };
+        Err(e) => return Err(e),
+    }
 }
 
-pub async fn wait_for_urls(
-    urls: Vec<String>,
-    check_interval: u64,
-    timeout: u64,
-) -> Result<(), Box<dyn Error>> {
-    let client = Client::new();
-    let start_time = std::time::Instant::now();
-
-    let mut all_urls_available = false;
-
-    while start_time.elapsed().as_secs() < timeout && !all_urls_available {
-        let mut futures = Vec::new();
-
-        for url in &urls {
-            let fut = wait_for_url(&client, url).await;
-            futures.push(fut);
+fn wait_for_tcp_socket(url: &str, timeout: Duration) -> Result<(), std::io::Error> {
+    let timer = Instant::now();
+    let address = resolve_address(url)?;
+    loop {
+        debug!("Ping {url}");
+        let timeout_left = timeout.saturating_sub(timer.elapsed());
+        if timeout_left.is_zero() {
+            let error = io::Error::new(io::ErrorKind::TimedOut, "Time is up");
+            return Err(error);
         }
 
-        let results = future::join_all(futures).await;
-        all_urls_available = results.iter().all(|&r| r);
-
-        if !all_urls_available {
-            sleep(Duration::from_secs(check_interval)).await;
+        // TODO: Use separate var for this timeout
+        match TcpStream::connect_timeout(&address, Duration::from_secs(1)) {
+            Ok(connection) => {
+                let _ = connection.shutdown(Shutdown::Both);
+                debug!("{url} available!");
+                return Ok(());
+            }
+            Err(error) => {
+                if timer.elapsed() >= timeout {
+                    debug!("{url} not available!");
+                    return Err(error);
+                }
+            }
         }
+        sleep(Duration::from_millis(500));
     }
+}
 
-    if all_urls_available {
-        println!("All URLs are available!");
+pub fn wait_for_service(url: &str, timeout_seconds: u64) -> Result<(), std::io::Error> {
+    let timer = Instant::now();
+
+    info!("Waiting {timeout_seconds} seconds for {url}...");
+
+    let timeout = if timeout_seconds == 0 {
+        Duration::MAX
     } else {
-        println!("Timeout reached, some URLs are not available.");
+        Duration::from_secs(timeout_seconds)
+    };
+
+    let connect_result = wait_for_tcp_socket(url, timeout);
+
+    match connect_result {
+        Ok(_) => {
+            let duration = timer.elapsed().as_secs_f32().max(0.1);
+            info!("{url} is available after {duration:.1} seconds.");
+        }
+        Err(ref error) => {
+            error!("{url} timed out after waiting for {timeout_seconds} seconds ({error}).");
+        }
     }
 
-    Ok(())
+    connect_result
 }
