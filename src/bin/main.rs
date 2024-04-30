@@ -1,12 +1,8 @@
 use log::LevelFilter;
-use std::{
-    error::Error,
-    process::exit,
-    thread::{spawn, JoinHandle},
-};
+use std::{error::Error, process::exit};
 use structopt::StructOpt;
 
-mod wait;
+use wait_for_rs::WaitService;
 
 #[derive(Debug, StructOpt)]
 #[structopt(name = "url-wait", about = "A command-line utility to wait for URLs.")]
@@ -25,17 +21,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let opt = Opt::from_args();
 
-    let mut success = true;
-    let mut threads: Vec<JoinHandle<bool>> = Vec::new();
-    for url in opt.urls {
-        let thread = spawn(move || wait::wait_for_service(&url, opt.timeout).is_ok());
-        threads.push(thread);
-    }
+    let wait = WaitService::new(opt.urls, opt.timeout)?;
 
-    for thread in threads {
-        success &= thread.join().unwrap_or(false);
-    }
+    let result = wait.wait_for_services();
+    let exit_code: i32 = if result.is_ok() { 0 } else { 1 };
 
-    let exit_code: i32 = if success { 0 } else { 1 };
     exit(exit_code);
 }

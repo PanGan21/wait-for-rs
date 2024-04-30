@@ -1,71 +1,110 @@
+use crate::{Result, WaitServiceError};
+use core::time;
 use log::{debug, error, info};
 use std::{
+    collections::HashMap,
     io,
     net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs},
-    thread::sleep,
+    thread::{sleep, spawn},
     time::{Duration, Instant},
 };
 
-fn resolve_address(url: &str) -> Result<SocketAddr, std::io::Error> {
+/// The default interval in milliseconds between pings for the same url
+const DEFAULT_INTERVAL: u64 = 500;
+/// The default connection timeout in seconds
+const DEAFULT_CONNECTION_TIMEOUT: u64 = 1;
+
+pub struct WaitService {
+    addresses: HashMap<SocketAddr, String>,
+    timeout: Duration,
+    interval: u64,
+}
+
+impl WaitService {
+    pub fn new(urls: Vec<String>, timeout_seconds: u64) -> Result<WaitService> {
+        let timeout = if timeout_seconds == 0 {
+            Duration::MAX
+        } else {
+            Duration::from_secs(timeout_seconds)
+        };
+
+        let addresses_result: Result<HashMap<SocketAddr, String>> = urls
+            .into_iter()
+            .map(|url| resolve_address(&url).map(|addr| (addr, url.clone())))
+            .collect();
+
+        Ok(WaitService {
+            addresses: addresses_result?,
+            timeout,
+            interval: DEFAULT_INTERVAL,
+        })
+    }
+
+    pub fn wait_for_services(self) -> Result<()> {
+        let mut threads = Vec::new();
+
+        for addr in self.addresses {
+            let thread = spawn(move || {
+                wait_for_tcp_socket(addr.clone(), self.timeout.clone(), self.interval.clone())
+            });
+            threads.push(thread);
+        }
+
+        for thread in threads {
+            thread
+                .join()
+                .unwrap_or(Err(WaitServiceError::ServiceNotAvailable))?;
+        }
+
+        Ok(())
+    }
+}
+
+fn resolve_address(url: &str) -> Result<SocketAddr> {
     match url.to_socket_addrs() {
         Ok(mut addr) => {
             return Ok(addr.next().unwrap());
         }
-        Err(e) => return Err(e),
+        Err(e) => return Err(WaitServiceError::Io(e)),
     }
 }
 
-fn wait_for_tcp_socket(url: &str, timeout: Duration) -> Result<(), std::io::Error> {
+fn wait_for_tcp_socket(
+    address_set: (SocketAddr, String),
+    timeout: Duration,
+    interval_millis: u64,
+) -> Result<()> {
     let timer = Instant::now();
-    let address = resolve_address(url)?;
+    let url = address_set.1;
     loop {
         debug!("Ping {url}");
+
         let timeout_left = timeout.saturating_sub(timer.elapsed());
         if timeout_left.is_zero() {
             let error = io::Error::new(io::ErrorKind::TimedOut, "Time is up");
-            return Err(error);
+            return Err(WaitServiceError::Io(error));
         }
 
-        // TODO: Use separate var for this timeout
-        match TcpStream::connect_timeout(&address, Duration::from_secs(1)) {
+        match TcpStream::connect_timeout(
+            &address_set.0,
+            Duration::from_secs(DEAFULT_CONNECTION_TIMEOUT),
+        ) {
             Ok(connection) => {
                 let _ = connection.shutdown(Shutdown::Both);
-                debug!("{url} available!");
+                let duration = timer.elapsed().as_secs_f32().max(0.1);
+                info!("{url} is available after {duration:.1} seconds.");
                 return Ok(());
             }
             Err(error) => {
                 if timer.elapsed() >= timeout {
-                    debug!("{url} not available!");
-                    return Err(error);
+                    error!(
+                        "{url} timed out after waiting for {:#?} seconds ({error}).",
+                        timeout
+                    );
+                    return Err(WaitServiceError::Io(error));
                 }
             }
         }
-        sleep(Duration::from_millis(500));
+        sleep(Duration::from_millis(interval_millis));
     }
-}
-
-pub fn wait_for_service(url: &str, timeout_seconds: u64) -> Result<(), std::io::Error> {
-    let timer = Instant::now();
-
-    info!("Waiting {timeout_seconds} seconds for {url}...");
-
-    let timeout = if timeout_seconds == 0 {
-        Duration::MAX
-    } else {
-        Duration::from_secs(timeout_seconds)
-    };
-
-    let connect_result = wait_for_tcp_socket(url, timeout);
-
-    match connect_result {
-        Ok(_) => {
-            let duration = timer.elapsed().as_secs_f32().max(0.1);
-            info!("{url} is available after {duration:.1} seconds.");
-        }
-        Err(ref error) => {
-            error!("{url} timed out after waiting for {timeout_seconds} seconds ({error}).");
-        }
-    }
-
-    connect_result
 }
