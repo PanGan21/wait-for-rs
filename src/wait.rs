@@ -1,5 +1,4 @@
 use crate::{Result, WaitServiceError};
-use core::time;
 use log::{debug, error, info};
 use std::{
     collections::HashMap,
@@ -22,6 +21,10 @@ pub struct WaitService {
 
 impl WaitService {
     pub fn new(urls: Vec<String>, timeout_seconds: u64) -> Result<WaitService> {
+        if urls.is_empty() {
+            return Err(WaitServiceError::UrlsEmpty);
+        }
+
         let timeout = if timeout_seconds == 0 {
             Duration::MAX
         } else {
