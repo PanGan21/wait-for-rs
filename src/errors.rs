@@ -7,6 +7,10 @@ pub enum WaitServiceError {
     #[error("Cannot parse url")]
     UrlNotParsed,
 
+    /// Urls empty.
+    #[error("Urls are empty")]
+    UrlsEmpty,
+
     /// IO error.
     #[error("{}", _0)]
     Io(#[from] std::io::Error),
