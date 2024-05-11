@@ -1,0 +1,19 @@
+name: Examples CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run examples
+        run: cargo run --example main --verbose
