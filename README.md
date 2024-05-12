@@ -33,9 +33,6 @@ wait-for-rs = { git = "https://github.com/PanGan21/wait-for-rs.git", branch = "m
 To start the server:
 
 ```bash
-# Wait for a URL to become available
-wait-for-rs http://example.com --timeout 30
-
 # Wait for a TCP socket to become available
 wait-for-rs 127.0.0.1:8080 --timeout 60
 ```
@@ -47,7 +44,7 @@ use wait_for_rs::{WaitService, Result};
 
 fn main() -> Result<()> {
     // Create a WaitService instance and wait for services
-    let wait_service = WaitService::new(vec!["http://example.com".to_string()], 30)?;
+    let wait_service = WaitService::new(vec!["google.com:443".to_string()], 30)?;
     wait_service.wait_for_services()?;
     Ok(())
 }
