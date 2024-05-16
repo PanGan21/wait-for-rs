@@ -14,7 +14,7 @@ A versatile Rust library and command-line tool for waiting on network resources 
 To install wait-for-rs as a command-line tool, simply run:
 
 ```bash
-cargo install wait-for-rs
+cd wait-for-rs && cargo install --path .
 ```
 
 ### Library
