@@ -1,3 +1,5 @@
+use std::net::AddrParseError;
+
 use thiserror::Error;
 
 /// Custom error type for the WaitService.
@@ -10,6 +12,14 @@ pub enum WaitServiceError {
     /// Urls empty.
     #[error("Urls are empty")]
     UrlsEmpty,
+
+    /// Url parse error.
+    #[error("{}", _0)]
+    Url(#[from] url::ParseError),
+
+    /// Address parse error.
+    #[error("{}", _0)]
+    Address(#[from] AddrParseError),
 
     /// IO error.
     #[error("{}", _0)]

@@ -96,3 +96,16 @@ fn multiple_addresses_with_timeout_works() {
     drop(server1);
     drop(server2);
 }
+
+#[test]
+fn one_address_one_https_works() {
+    let server1 = utils::TestServer::new(4000, Duration::from_millis(10));
+
+    Command::cargo_bin("wait-for-rs")
+        .unwrap()
+        .args(&["--urls", "127.0.0.1:4000", "https://google.com"])
+        .assert()
+        .success();
+
+    drop(server1);
+}
