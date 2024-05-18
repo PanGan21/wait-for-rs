@@ -71,26 +71,29 @@ impl WaitService {
 fn resolve_address(url: &str) -> Result<SocketAddr> {
     // Try parsing the input as a URL
     if let Ok(parsed_url) = Url::parse(url) {
-        // Check if the URL includes a port
-        let port = match parsed_url.port() {
-            Some(port) => port,
-            None => get_default_port(&parsed_url)?,
-        };
+        if parsed_url.has_host() {
+            // Check if the URL includes a port
+            let port = match parsed_url.port() {
+                Some(port) => port,
+                None => get_default_port(&parsed_url)?,
+            };
 
-        let host = parsed_url
-            .host_str()
-            .ok_or(WaitServiceError::UrlNotParsed)?;
+            let host = parsed_url
+                .host_str()
+                .ok_or(WaitServiceError::UrlNotParsed)?;
 
-        // Construct the address
-        let addr = socket_addr_from_host_and_port(&host, port)?;
+            // Construct the address
+            let addr = socket_addr_from_host_and_port(&host, port)?;
 
-        Ok(addr)
-    } else {
-        // If parsing as URL fails, try parsing as TCP address
-        let addr = socket_addr_from_tcp(url)?;
-
-        Ok(addr)
+            return Ok(addr);
+        } else {
+            let addr = socket_addr_from_url(url)?;
+            return Ok(addr);
+        }
     }
+    let addr = socket_addr_from_tcp(url)?;
+
+    return Ok(addr);
 }
 
 /// Default port based on scheme
@@ -105,6 +108,17 @@ fn get_default_port(url: &Url) -> Result<u16> {
 /// Construct a `SocketAddr` from a host and a port
 fn socket_addr_from_host_and_port(host: &str, port: u16) -> Result<SocketAddr> {
     let addr = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| WaitServiceError::Io(e))?
+        .next()
+        .ok_or(WaitServiceError::UrlNotParsed)?;
+
+    Ok(addr)
+}
+
+/// Construct a `SocketAddr` from a url
+fn socket_addr_from_url(url: &str) -> Result<SocketAddr> {
+    let addr = url
         .to_socket_addrs()
         .map_err(|e| WaitServiceError::Io(e))?
         .next()
