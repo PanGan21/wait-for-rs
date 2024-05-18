@@ -87,7 +87,8 @@ fn resolve_address(url: &str) -> Result<SocketAddr> {
 
             return Ok(addr);
         } else {
-            let addr = socket_addr_from_url(url)?;
+            // If there is no host then it is only domain
+            let addr = socket_addr_from_domain(url)?;
             return Ok(addr);
         }
     }
@@ -117,7 +118,7 @@ fn socket_addr_from_host_and_port(host: &str, port: u16) -> Result<SocketAddr> {
 }
 
 /// Construct a `SocketAddr` from a url
-fn socket_addr_from_url(url: &str) -> Result<SocketAddr> {
+fn socket_addr_from_domain(url: &str) -> Result<SocketAddr> {
     let addr = url
         .to_socket_addrs()
         .map_err(|e| WaitServiceError::Io(e))?
