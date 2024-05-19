@@ -7,11 +7,16 @@ use std::{
     thread::{sleep, spawn},
     time::{Duration, Instant},
 };
+use url::Url;
 
 /// The default interval in milliseconds between pings for the same url
 const DEFAULT_INTERVAL: u64 = 500;
 /// The default connection timeout in seconds
 const DEAFULT_CONNECTION_TIMEOUT: u64 = 1;
+/// The default port for https to use when port is not provided
+const DEFAULT_HTTPS_PORT: u16 = 443;
+/// The default port for http to use when port is not provided
+const DEFAULT_HTTP_PORT: u16 = 80;
 
 pub struct WaitService {
     addresses: HashMap<SocketAddr, String>,
@@ -64,12 +69,72 @@ impl WaitService {
 }
 
 fn resolve_address(url: &str) -> Result<SocketAddr> {
-    match url.to_socket_addrs() {
-        Ok(mut addr) => {
-            return Ok(addr.next().unwrap());
+    // Try parsing the input as a URL
+    if let Ok(parsed_url) = Url::parse(url) {
+        if parsed_url.has_host() {
+            // Check if the URL includes a port
+            let port = match parsed_url.port() {
+                Some(port) => port,
+                None => get_default_port(&parsed_url)?,
+            };
+
+            let host = parsed_url
+                .host_str()
+                .ok_or(WaitServiceError::UrlNotParsed)?;
+
+            // Construct the address
+            let addr = socket_addr_from_host_and_port(&host, port)?;
+
+            return Ok(addr);
+        } else {
+            // If there is no host then it is only domain
+            let addr = socket_addr_from_domain(url)?;
+            return Ok(addr);
         }
-        Err(e) => return Err(WaitServiceError::Io(e)),
     }
+    let addr = socket_addr_from_tcp(url)?;
+
+    return Ok(addr);
+}
+
+/// Default port based on scheme
+fn get_default_port(url: &Url) -> Result<u16> {
+    match url.scheme() {
+        "https" => Ok(DEFAULT_HTTPS_PORT),
+        "http" => Ok(DEFAULT_HTTP_PORT),
+        _ => return Err(WaitServiceError::UrlNotParsed),
+    }
+}
+
+/// Construct a `SocketAddr` from a host and a port
+fn socket_addr_from_host_and_port(host: &str, port: u16) -> Result<SocketAddr> {
+    let addr = (host, port)
+        .to_socket_addrs()
+        .map_err(|e| WaitServiceError::Io(e))?
+        .next()
+        .ok_or(WaitServiceError::UrlNotParsed)?;
+
+    Ok(addr)
+}
+
+/// Construct a `SocketAddr` from a url
+fn socket_addr_from_domain(url: &str) -> Result<SocketAddr> {
+    let addr = url
+        .to_socket_addrs()
+        .map_err(|e| WaitServiceError::Io(e))?
+        .next()
+        .ok_or(WaitServiceError::UrlNotParsed)?;
+
+    Ok(addr)
+}
+
+/// Construct a `SocketAddr` from a tcp address
+fn socket_addr_from_tcp(address: &str) -> Result<SocketAddr> {
+    let addr = address
+        .parse::<SocketAddr>()
+        .map_err(|e| WaitServiceError::Address(e))?;
+
+    Ok(addr)
 }
 
 fn wait_for_tcp_socket(
